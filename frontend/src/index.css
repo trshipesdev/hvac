@@ -1,0 +1,103 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@300;400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap');
+
+html, body, #root {
+    height: 100%;
+    background: #09090b;
+}
+
+body {
+    margin: 0;
+    font-family: 'IBM Plex Sans', system-ui, sans-serif;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    color: #fafafa;
+    background: #09090b;
+}
+
+.font-mono {
+    font-family: 'IBM Plex Mono', ui-monospace, SFMono-Regular, monospace !important;
+    font-feature-settings: "tnum" 1, "zero" 1;
+}
+
+::selection {
+    background: rgba(59, 130, 246, 0.35);
+    color: #fff;
+}
+
+/* Terminal cursor blink */
+@keyframes terminal-blink {
+    0%, 50% { opacity: 1; }
+    51%, 100% { opacity: 0; }
+}
+.terminal-cursor::after {
+    content: "▊";
+    margin-left: 4px;
+    animation: terminal-blink 1s steps(2) infinite;
+    color: #a1a1aa;
+}
+
+/* Chart tooltip */
+.recharts-default-tooltip {
+    background: #18181b !important;
+    border: 1px solid #3f3f46 !important;
+    border-radius: 2px !important;
+    font-family: 'IBM Plex Mono', monospace !important;
+    color: #e4e4e7 !important;
+    padding: 8px 10px !important;
+    font-size: 12px !important;
+}
+.recharts-tooltip-label {
+    color: #a1a1aa !important;
+    font-size: 11px !important;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    margin-bottom: 4px !important;
+}
+
+/* Scrollbar */
+::-webkit-scrollbar { width: 8px; height: 8px; }
+::-webkit-scrollbar-track { background: #09090b; }
+::-webkit-scrollbar-thumb { background: #27272a; border-radius: 0; }
+::-webkit-scrollbar-thumb:hover { background: #3f3f46; }
+
+@layer base {
+    :root {
+        --background: 240 6% 6%;
+        --foreground: 0 0% 98%;
+        --card: 240 4% 10%;
+        --card-foreground: 0 0% 98%;
+        --popover: 240 4% 10%;
+        --popover-foreground: 0 0% 98%;
+        --primary: 0 0% 98%;
+        --primary-foreground: 240 6% 6%;
+        --secondary: 240 4% 14%;
+        --secondary-foreground: 0 0% 98%;
+        --muted: 240 4% 14%;
+        --muted-foreground: 240 5% 65%;
+        --accent: 240 4% 14%;
+        --accent-foreground: 0 0% 98%;
+        --destructive: 0 84% 60%;
+        --destructive-foreground: 0 0% 98%;
+        --border: 240 4% 18%;
+        --input: 240 4% 18%;
+        --ring: 240 5% 45%;
+        --radius: 2px;
+    }
+}
+
+@layer base {
+    * { @apply border-border; }
+    body { @apply bg-background text-foreground; }
+}
+
+/* Utility */
+.grid-lines-bg {
+    background-image:
+        linear-gradient(rgba(63, 63, 70, 0.15) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(63, 63, 70, 0.15) 1px, transparent 1px);
+    background-size: 32px 32px;
+}
