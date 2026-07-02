@@ -15,7 +15,14 @@ import io
 logger = logging.getLogger(__name__)
 
 MODEL = os.environ.get("BILL_PARSER_MODEL", "claude-haiku-4-5-20251001")
-API_KEY = os.environ.get("ANTHROPIC_API_KEY", "")
+
+
+def _get_api_key() -> str:
+    return os.environ.get("ANTHROPIC_API_KEY", "")
+
+
+# Back-compat alias for the debug health endpoint
+API_KEY = property(lambda self: _get_api_key())
 
 SYSTEM_PROMPT = """You are a utility bill extraction engine. You receive a residential
 electricity bill (any US utility — Dominion, Duke, ConEd, PG&E, etc.). Extract every
@@ -79,10 +86,10 @@ def parse_bill(file_bytes: bytes, mime_type: str) -> Dict[str, Any]:
     Uses PDF document attachment when possible; otherwise falls back to
     extracted text via pdfplumber.
     """
-    if not API_KEY:
+    if not _get_api_key():
         raise RuntimeError("ANTHROPIC_API_KEY not configured")
 
-    client = anthropic.Anthropic(api_key=API_KEY)
+    client = anthropic.Anthropic(api_key=_get_api_key())
 
     content = []
     # Prefer sending PDF as document (native Claude PDF support)

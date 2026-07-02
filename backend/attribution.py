@@ -49,13 +49,19 @@ def attribute(
     intervals: List[Dict[str, Any]],
     readings_by_unit: Dict[str, List[Dict[str, Any]]],
     rate_usd_per_kwh: float,
+    rate_lookup=None,
 ) -> List[Dict[str, Any]]:
-    """Mutates intervals in place with per-unit attribution and returns them."""
+    """Mutates intervals in place with per-unit attribution and returns them.
+
+    rate_lookup: optional callable(ts) -> float. If provided, used per interval;
+    otherwise falls back to the scalar rate_usd_per_kwh.
+    """
     base_per_interval = estimate_base_load(intervals, readings_by_unit)
 
     for iv in intervals:
         start = iv["ts_start"]
         end = iv["ts_end"]
+        rate = rate_lookup(start) if rate_lookup else rate_usd_per_kwh
         unit_runtime: Dict[str, float] = {}
         for unit_id, readings in readings_by_unit.items():
             sub = _readings_in_interval(readings, start, end)
@@ -78,8 +84,9 @@ def attribute(
 
         iv["unit_kwh"] = unit_kwh
         iv["base_load_kwh"] = round(base_kwh, 4)
-        iv["unit_cost"] = {uid: round(k * rate_usd_per_kwh, 4) for uid, k in unit_kwh.items()}
-        iv["base_load_cost"] = round(base_kwh * rate_usd_per_kwh, 4)
+        iv["unit_cost"] = {uid: round(k * rate, 4) for uid, k in unit_kwh.items()}
+        iv["base_load_cost"] = round(base_kwh * rate, 4)
+        iv["effective_rate"] = rate
         iv["attributed_at"] = datetime.now(timezone.utc)
 
     return intervals

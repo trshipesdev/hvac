@@ -107,6 +107,10 @@ AnomalyType = Literal[
     "efficiency_regression",
     "weather_disproportion",
     "setpoint_gap_widening",
+    "bill_rate_spike",
+    "bill_past_due",
+    "bill_late_fee",
+    "bill_usage_spike",
 ]
 
 Severity = Literal["critical", "warning", "info"]
@@ -124,6 +128,10 @@ class AnomalyFlag(BaseModel):
     description: str
     context: Dict[str, Any] = Field(default_factory=dict)
     detected_at: datetime = Field(default_factory=now_utc)
+    acknowledged: bool = False
+    acknowledged_at: Optional[datetime] = None
+    ack_note: Optional[str] = None
+    category: str = "hvac"  # "hvac" | "bill"
 
 
 # --- Bill period ---
@@ -149,6 +157,19 @@ class BillPeriodCreate(BaseModel):
     total_cost: Optional[float] = None
     rate_usd_per_kwh: Optional[float] = None
     notes: Optional[str] = None
+
+
+class RatePeriod(BaseModel):
+    """Time-varying $/kWh derived from parsed bills."""
+    model_config = ConfigDict(extra="ignore")
+    id: str = Field(default_factory=new_id)
+    start: datetime
+    end: datetime
+    effective_rate: float
+    tiers: Optional[List[Dict[str, Any]]] = None  # from bill: [{tier_name, kwh, rate_per_kwh, amount}]
+    source_bill_id: Optional[str] = None
+    utility_name: Optional[str] = None
+    created_at: datetime = Field(default_factory=now_utc)
 
 
 # --- Aux ---

@@ -14,7 +14,7 @@ import logging
 from models import (
     Property, PropertyUpdate, HvacUnit, HvacUnitCreate,
     EnergyInterval, ThermostatReading, WeatherReading,
-    AnomalyFlag, BillPeriod, BillPeriodCreate,
+    AnomalyFlag, BillPeriod, BillPeriodCreate, RatePeriod,
     serialize_doc, deserialize_doc, new_id, now_utc,
 )
 from pydantic import BaseModel
@@ -25,6 +25,7 @@ import attribution
 import anomalies as anomalies_mod
 import report as report_mod
 import bill_parser
+import bill_anomalies
 
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / '.env')
@@ -274,14 +275,52 @@ async def _load_weather(start: datetime, end: datetime) -> List[Dict[str, Any]]:
     return docs
 
 
+# ---------- Rate periods (time-varying $/kWh) ----------
+
+async def _load_rate_periods() -> List[Dict[str, Any]]:
+    docs = await db.rate_periods.find({}, {"_id": 0}).sort("start", 1).to_list(500)
+    for d in docs:
+        for f in ("start", "end", "created_at"):
+            if isinstance(d.get(f), str):
+                try:
+                    d[f] = datetime.fromisoformat(d[f])
+                except Exception:
+                    pass
+    return docs
+
+
+async def _build_rate_lookup(fallback: float):
+    """Return callable(ts) -> rate using rate_periods table + fallback."""
+    periods = await _load_rate_periods()
+    if not periods:
+        return lambda ts: fallback
+
+    def lookup(ts: datetime) -> float:
+        for rp in periods:
+            if rp["start"] <= ts <= rp["end"]:
+                return rp["effective_rate"]
+        return fallback
+    return lookup
+
+
+@api.get("/rate-periods", response_model=List[RatePeriod], dependencies=[Depends(require_passphrase)])
+async def list_rate_periods():
+    docs = await _load_rate_periods()
+    return [RatePeriod(**d) for d in docs]
+
+
 @api.post("/attribution/run", dependencies=[Depends(require_passphrase)])
-async def run_attribution(days: int = 30):
+async def run_attribution(days: int = 30, start_iso: Optional[str] = None, end_iso: Optional[str] = None):
     prop = await _get_property()
     units_docs = await db.hvac_units.find({}, {"_id": 0}).to_list(10)
     if not units_docs:
         raise HTTPException(400, "No units configured")
-    end = datetime.now(timezone.utc)
-    start = end - timedelta(days=days)
+    if start_iso and end_iso:
+        start = datetime.fromisoformat(start_iso).replace(tzinfo=timezone.utc)
+        end = datetime.fromisoformat(end_iso).replace(tzinfo=timezone.utc)
+    else:
+        end = datetime.now(timezone.utc)
+        start = end - timedelta(days=days)
     intervals = await _load_intervals(start, end)
     if not intervals:
         return {"attributed": 0, "message": "No intervals to attribute"}
@@ -289,11 +328,10 @@ async def run_attribution(days: int = 30):
     for u in units_docs:
         readings_by_unit[u["id"]] = await _load_readings(u["id"], start, end)
 
-    attribution.attribute(intervals, readings_by_unit, prop.rate_usd_per_kwh)
+    rate_lookup = await _build_rate_lookup(prop.rate_usd_per_kwh)
+    attribution.attribute(intervals, readings_by_unit, prop.rate_usd_per_kwh, rate_lookup=rate_lookup)
     for iv in intervals:
-        await db.energy_intervals.replace_one(
-            {"id": iv["id"]}, serialize_doc(iv), upsert=False
-        )
+        await db.energy_intervals.replace_one({"id": iv["id"]}, serialize_doc(iv), upsert=False)
     return {"attributed": len(intervals), "start": start.isoformat(), "end": end.isoformat()}
 
 
@@ -307,14 +345,26 @@ async def run_anomaly_detection(days: int = 30):
     intervals = await _load_intervals(start, end)
     weather = await _load_weather(start, end)
 
-    # Clear previous anomalies for the window
-    await db.anomalies.delete_many({"ts_start": {"$gte": start.isoformat(), "$lte": end.isoformat()}})
+    # Clear previous UN-acknowledged HVAC anomalies in the window; keep acknowledged ones
+    await db.anomalies.delete_many({
+        "ts_start": {"$gte": start.isoformat(), "$lte": end.isoformat()},
+        "acknowledged": {"$ne": True},
+        "category": {"$ne": "bill"},
+    })
 
     total = 0
     for u in units_docs:
         readings = await _load_readings(u["id"], start, end)
         found = anomalies_mod.run_all(u["id"], readings, intervals, weather)
         for a in found:
+            # Skip if an acknowledged one of same type+unit+day already exists
+            exists = await db.anomalies.find_one({
+                "unit_id": a["unit_id"], "type": a["type"],
+                "ts_start": a["ts_start"].isoformat(),
+                "acknowledged": True,
+            }, {"_id": 0, "id": 1})
+            if exists:
+                continue
             flag = AnomalyFlag(**a)
             await db.anomalies.insert_one(serialize_doc(flag.model_dump()))
             total += 1
@@ -326,6 +376,8 @@ async def list_anomalies(
     unit_id: Optional[str] = None,
     severity: Optional[str] = None,
     type: Optional[str] = None,
+    category: Optional[str] = None,
+    include_acknowledged: bool = False,
     limit: int = 500,
 ):
     q: Dict[str, Any] = {}
@@ -335,8 +387,36 @@ async def list_anomalies(
         q["severity"] = severity
     if type:
         q["type"] = type
+    if category:
+        q["category"] = category
+    if not include_acknowledged:
+        q["acknowledged"] = {"$ne": True}
     docs = await db.anomalies.find(q, {"_id": 0}).sort("ts_start", -1).to_list(limit)
     return [AnomalyFlag(**deserialize_doc(d, DATE_FIELDS)) for d in docs]
+
+
+class AckPayload(BaseModel):
+    ack_note: Optional[str] = None
+
+
+@api.post("/anomalies/{anomaly_id}/ack", dependencies=[Depends(require_passphrase)])
+async def acknowledge_anomaly(anomaly_id: str, payload: AckPayload = AckPayload()):
+    result = await db.anomalies.update_one(
+        {"id": anomaly_id},
+        {"$set": {"acknowledged": True, "acknowledged_at": now_utc().isoformat(), "ack_note": payload.ack_note}},
+    )
+    if result.matched_count == 0:
+        raise HTTPException(404, "Anomaly not found")
+    return {"acknowledged": anomaly_id}
+
+
+@api.post("/anomalies/{anomaly_id}/unack", dependencies=[Depends(require_passphrase)])
+async def unack_anomaly(anomaly_id: str):
+    await db.anomalies.update_one(
+        {"id": anomaly_id},
+        {"$set": {"acknowledged": False, "acknowledged_at": None, "ack_note": None}},
+    )
+    return {"unacknowledged": anomaly_id}
 
 
 # ---------- Dashboard aggregates ----------
@@ -345,10 +425,16 @@ async def list_anomalies(
 async def dashboard_timeline(
     days: int = 7,
     bucket: str = "hour",  # hour | day
+    start_iso: Optional[str] = None,
+    end_iso: Optional[str] = None,
 ):
     units_docs = await db.hvac_units.find({}, {"_id": 0}).to_list(10)
-    end = datetime.now(timezone.utc)
-    start = end - timedelta(days=days)
+    if start_iso and end_iso:
+        start = datetime.fromisoformat(start_iso).replace(tzinfo=timezone.utc)
+        end = datetime.fromisoformat(end_iso).replace(tzinfo=timezone.utc)
+    else:
+        end = datetime.now(timezone.utc)
+        start = end - timedelta(days=days)
     intervals = await _load_intervals(start, end)
     weather = await _load_weather(start, end)
 
@@ -384,11 +470,15 @@ async def dashboard_timeline(
 
 
 @api.get("/dashboard/summary", dependencies=[Depends(require_passphrase)])
-async def dashboard_summary(days: int = 7):
+async def dashboard_summary(days: int = 7, start_iso: Optional[str] = None, end_iso: Optional[str] = None):
     prop = await _get_property()
     units_docs = await db.hvac_units.find({}, {"_id": 0}).to_list(10)
-    end = datetime.now(timezone.utc)
-    start = end - timedelta(days=days)
+    if start_iso and end_iso:
+        start = datetime.fromisoformat(start_iso).replace(tzinfo=timezone.utc)
+        end = datetime.fromisoformat(end_iso).replace(tzinfo=timezone.utc)
+    else:
+        end = datetime.now(timezone.utc)
+        start = end - timedelta(days=days)
     intervals = await _load_intervals(start, end)
     unit_ids = [u["id"] for u in units_docs]
     readings_by_unit = {u["id"]: await _load_readings(u["id"], start, end) for u in units_docs}
@@ -421,6 +511,78 @@ async def dashboard_summary(days: int = 7):
         "base_load": summary.get("_base_load", {}),
         "active_anomalies": active_anomalies,
         "critical_anomalies": critical_anomalies,
+    }
+
+
+# ---------- Year-over-year + drill-down ----------
+
+@api.get("/dashboard/yoy", dependencies=[Depends(require_passphrase)])
+async def year_over_year():
+    """Compare last 30 days vs same 30-day window a year ago."""
+    now = datetime.now(timezone.utc)
+    cur_end = now
+    cur_start = cur_end - timedelta(days=30)
+    prior_end = cur_end - timedelta(days=365)
+    prior_start = prior_end - timedelta(days=30)
+
+    async def _range_kwh(s, e):
+        cursor = db.energy_intervals.find(
+            {"ts_start": {"$gte": s.isoformat(), "$lte": e.isoformat()}},
+            {"_id": 0, "kwh": 1},
+        )
+        docs = await cursor.to_list(200000)
+        return round(sum(d["kwh"] for d in docs), 2)
+
+    cur_kwh = await _range_kwh(cur_start, cur_end)
+    prior_kwh = await _range_kwh(prior_start, prior_end)
+    pct = None
+    if prior_kwh > 0:
+        pct = round((cur_kwh - prior_kwh) / prior_kwh * 100, 1)
+    return {
+        "current_kwh": cur_kwh,
+        "prior_year_kwh": prior_kwh,
+        "pct_change": pct,
+        "current_window": {"start": cur_start.isoformat(), "end": cur_end.isoformat()},
+        "prior_window": {"start": prior_start.isoformat(), "end": prior_end.isoformat()},
+    }
+
+
+@api.get("/dashboard/drilldown", dependencies=[Depends(require_passphrase)])
+async def timeline_drilldown(ts: str, bucket: str = "hour"):
+    """Return raw intervals + thermostat activity + weather + anomalies for a bucket."""
+    if bucket == "day":
+        start = datetime.fromisoformat(ts).replace(tzinfo=timezone.utc)
+        end = start + timedelta(days=1)
+    else:
+        start = datetime.fromisoformat(ts.replace(" ", "T")).replace(tzinfo=timezone.utc)
+        end = start + timedelta(hours=1)
+
+    intervals = await _load_intervals(start, end)
+    units_docs = await db.hvac_units.find({}, {"_id": 0}).to_list(10)
+    readings_by_unit = {}
+    for u in units_docs:
+        readings_by_unit[u["id"]] = await _load_readings(u["id"], start, end)
+
+    # Convert datetimes to iso for JSON
+    def _dt(v): return v.isoformat() if isinstance(v, datetime) else v
+    iv_out = [{k: _dt(v) for k, v in iv.items()} for iv in intervals]
+    r_out = {uid: [{k: _dt(v) for k, v in r.items()} for r in rs] for uid, rs in readings_by_unit.items()}
+    weather = await _load_weather(start, end)
+    w_out = [{k: _dt(v) for k, v in w.items()} for w in weather]
+
+    anom_docs = await db.anomalies.find(
+        {"ts_start": {"$lte": end.isoformat()}, "ts_end": {"$gte": start.isoformat()}}, {"_id": 0}
+    ).to_list(100)
+
+    return {
+        "start": start.isoformat(),
+        "end": end.isoformat(),
+        "bucket": bucket,
+        "intervals": iv_out,
+        "readings_by_unit": r_out,
+        "weather": w_out,
+        "anomalies": anom_docs,
+        "units": [{"id": u["id"], "name": u["name"], "color": u.get("color", "#3b82f6")} for u in units_docs],
     }
 
 
@@ -549,7 +711,42 @@ async def confirm_uploaded_bill(payload: BillConfirm):
         "created_at": now_utc(),
     }))
 
-    # Optionally apply rate to property
+    # Insert rate_period so future attribution uses the correct rate for THIS window
+    if rate:
+        await db.rate_periods.delete_many({
+            "start": start.isoformat(),
+            "end": end.isoformat(),
+        })
+        rp = RatePeriod(
+            start=start, end=end, effective_rate=rate,
+            tiers=p.get("tier_breakdown"),
+            source_bill_id=bp.id,
+            utility_name=p.get("utility_name"),
+        )
+        await db.rate_periods.insert_one(serialize_doc(rp.model_dump()))
+
+    # Run bill anomaly detector
+    prior_rps = await _load_rate_periods()
+    prior_before = [rp for rp in prior_rps if rp["start"] < start]
+    bill_anoms = bill_anomalies.detect_bill_anomalies(p, bp.id, prior_before)
+    for a in bill_anoms:
+        exists = await db.anomalies.find_one({
+            "category": "bill", "type": a["type"],
+            "ts_start": a["ts_start"].isoformat(),
+        }, {"_id": 0, "id": 1})
+        if exists:
+            continue
+        flag = AnomalyFlag(**a)
+        await db.anomalies.insert_one(serialize_doc(flag.model_dump()))
+
+    # Re-attribute the intervals in this window with the new rate
+    if rate:
+        try:
+            await run_attribution(days=0, start_iso=start.isoformat(), end_iso=end.isoformat())
+        except Exception as e:
+            logger.warning("Re-attribution after bill confirm failed: %s", e)
+
+    # Optionally apply rate to property (for intervals outside any rate_period)
     if payload.apply_rate and rate:
         prop = await _get_property()
         data = prop.model_dump()
@@ -559,6 +756,32 @@ async def confirm_uploaded_bill(payload: BillConfirm):
         await db.property.replace_one({"id": prop.id}, serialize_doc(prop2.model_dump()), upsert=True)
 
     return bp
+
+
+@api.post("/bills/bulk-parse", dependencies=[Depends(require_passphrase)])
+async def bulk_parse(files: List[UploadFile] = File(...)):
+    """Parse multiple bill PDFs and auto-confirm each. Returns per-file result."""
+    results = []
+    for f in files:
+        try:
+            raw = await f.read()
+            mime = f.content_type or "application/pdf"
+            parsed = bill_parser.parse_bill(raw, mime)
+            # Confirm inline
+            confirm_resp = await confirm_uploaded_bill(BillConfirm(parsed=parsed, apply_rate=False))
+            results.append({
+                "filename": f.filename,
+                "ok": True,
+                "bill_id": confirm_resp.id,
+                "utility": parsed.get("utility_name"),
+                "period": f"{parsed.get('billing_period_start')} → {parsed.get('billing_period_end')}",
+                "total_kwh": parsed.get("total_kwh"),
+                "total_cost": parsed.get("total_cost"),
+                "effective_rate": parsed.get("effective_rate_per_kwh"),
+            })
+        except Exception as e:
+            results.append({"filename": f.filename, "ok": False, "error": str(e)})
+    return {"results": results, "count": len(results)}
 
 
 # ---------- Deprecated inline bill create shim removed above ----------
@@ -597,6 +820,8 @@ async def export_pdf(days: int = 30):
         summary,
         anomaly_docs,
         f"{start.strftime('%Y-%m-%d')} to {end.strftime('%Y-%m-%d')}",
+        intervals=intervals,
+        yoy=await year_over_year(),
     )
     return StreamingResponse(io.BytesIO(pdf_bytes), media_type="application/pdf",
                              headers={"Content-Disposition": 'attachment; filename="hvac-report.pdf"'})

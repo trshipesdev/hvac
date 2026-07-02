@@ -2,7 +2,7 @@ import React, { useState, useRef } from "react";
 import { api } from "@/lib/apiClient";
 import { Panel, PanelHeader } from "@/components/Panel";
 import { toast } from "sonner";
-import { UploadIcon, FileArrowDownIcon, CloudArrowDownIcon, ArrowClockwiseIcon } from "@phosphor-icons/react";
+import { Upload, Download, Cloud, RefreshCw } from "lucide-react";
 
 export default function Ingest() {
   const [dragOver, setDragOver] = useState(false);
@@ -19,9 +19,8 @@ export default function Ingest() {
       toast.success(`Ingested ${res.data.inserted} intervals`);
       await api.runAttribution(30);
       await api.runAnomalies(30);
-    } catch (e) {
-      toast.error("Upload failed: " + (e.response?.data?.detail || e.message));
-    } finally { setUploading(false); }
+    } catch (e) { toast.error("Upload failed: " + (e.response?.data?.detail || e.message)); }
+    finally { setUploading(false); }
   };
 
   const downloadSample = async () => {
@@ -29,108 +28,95 @@ export default function Ingest() {
       const blob = await api.downloadSampleXml();
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
-      a.href = url;
-      a.download = "sample-green-button.xml";
-      a.click();
+      a.href = url; a.download = "sample-green-button.xml"; a.click();
       URL.revokeObjectURL(url);
     } catch { toast.error("Download failed"); }
   };
 
   const syncNOAA = async () => {
     toast.info("Fetching NOAA weather…");
-    try {
-      const res = await api.ingestNoaa(30);
-      toast.success(`NOAA: ${res.data.inserted} rows (${res.data.source})`);
-    } catch (e) { toast.error(e.response?.data?.detail || "NOAA failed"); }
+    try { const r = await api.ingestNoaa(30); toast.success(`NOAA: ${r.data.inserted} rows (${r.data.source})`); }
+    catch (e) { toast.error(e.response?.data?.detail || "NOAA failed"); }
   };
 
   const syncResideo = async () => {
     toast.info("Syncing thermostats…");
-    try {
-      const res = await api.resideoSync(30);
-      toast.success(`Resideo: ${res.data.inserted} readings`);
-    } catch (e) { toast.error(e.response?.data?.detail || "Resideo failed"); }
+    try { const r = await api.resideoSync(30); toast.success(`Resideo: ${r.data.inserted} readings`); }
+    catch (e) { toast.error(e.response?.data?.detail || "Resideo failed"); }
   };
 
   return (
-    <div className="space-y-6" data-testid="ingest-page">
+    <div className="space-y-8 animate-fade-in" data-testid="ingest-page">
       <div>
-        <div className="font-mono text-[10px] uppercase tracking-[0.2em] text-zinc-500 mb-1">&gt; data ingestion</div>
-        <h1 className="text-3xl font-semibold tracking-tight">Ingest</h1>
+        <div className="text-[10px] font-medium uppercase tracking-[0.15em] text-slate-500 mb-2">data ingestion</div>
+        <h1 className="text-4xl font-serif tracking-tight text-forest-900">Ingest</h1>
+        <p className="text-sm text-slate-600 mt-1.5 max-w-xl">Upload utility data, sync weather, and pull thermostat readings.</p>
       </div>
 
       <Panel data-testid="green-button-panel">
-        <PanelHeader label="Green Button XML" action={
-          <button onClick={downloadSample} className="font-mono text-[10px] uppercase tracking-[0.2em] text-blue-400 hover:text-blue-300 flex items-center gap-1" data-testid="download-sample">
-            <FileArrowDownIcon size={12} /> download sample
-          </button>
-        } />
+        <PanelHeader label="Green Button XML"
+          action={<button onClick={downloadSample} className="text-[10px] font-medium uppercase tracking-[0.15em] text-forest-500 hover:text-forest-700 flex items-center gap-1" data-testid="download-sample"><Download size={11} strokeWidth={1.75} /> Sample</button>} />
         <div className="p-6">
           <div
             onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
             onDragLeave={() => setDragOver(false)}
-            onDrop={(e) => {
-              e.preventDefault(); setDragOver(false);
-              const f = e.dataTransfer.files[0];
-              handleFile(f);
-            }}
+            onDrop={(e) => { e.preventDefault(); setDragOver(false); handleFile(e.dataTransfer.files[0]); }}
             onClick={() => inputRef.current?.click()}
-            className={`border-2 border-dashed rounded-sm p-12 text-center cursor-pointer transition-colors ${
-              dragOver ? "border-blue-500 bg-blue-500/5" : "border-zinc-800 hover:border-zinc-700"
+            className={`border-2 border-dashed rounded-xl p-14 text-center cursor-pointer transition-all ${
+              dragOver ? "border-forest-500 bg-forest-50" : "border-paper-300 hover:border-forest-300 hover:bg-paper-100"
             }`}
             data-testid="dropzone"
           >
-            <UploadIcon size={32} weight="thin" className="text-zinc-500 mx-auto mb-3" />
-            <div className="text-sm text-zinc-300 mb-1">{uploading ? "Uploading…" : "Drop Green Button XML here"}</div>
-            <div className="font-mono text-[10px] uppercase tracking-[0.2em] text-zinc-500">or click to browse</div>
-            <input
-              ref={inputRef}
-              type="file"
-              accept=".xml"
-              onChange={(e) => handleFile(e.target.files[0])}
-              className="hidden"
-              data-testid="file-input"
-            />
+            <div className="w-14 h-14 rounded-full bg-paper-200 flex items-center justify-center mx-auto mb-4">
+              <Upload size={22} strokeWidth={1.5} className="text-forest-600" />
+            </div>
+            <div className="text-base text-forest-800 mb-1 font-medium">{uploading ? "Uploading…" : "Drop your Green Button XML here"}</div>
+            <div className="text-xs text-slate-500">or click to browse — accepts .xml from Dominion, Duke, ConEd, etc.</div>
+            <input ref={inputRef} type="file" accept=".xml" onChange={(e) => handleFile(e.target.files[0])} className="hidden" data-testid="file-input" />
           </div>
           {result && (
-            <div className="mt-4 border border-zinc-800 rounded-sm p-3 font-mono text-xs" data-testid="ingest-result">
-              <div className="grid grid-cols-4 gap-3">
-                <div><div className="text-zinc-500 uppercase text-[10px] tracking-widest">inserted</div><div className="text-emerald-500">{result.inserted}</div></div>
-                <div><div className="text-zinc-500 uppercase text-[10px] tracking-widest">skipped</div><div className="text-amber-500">{result.skipped}</div></div>
-                <div><div className="text-zinc-500 uppercase text-[10px] tracking-widest">range start</div><div className="text-zinc-200">{result.range_start?.slice(0, 16)}</div></div>
-                <div><div className="text-zinc-500 uppercase text-[10px] tracking-widest">range end</div><div className="text-zinc-200">{result.range_end?.slice(0, 16)}</div></div>
-              </div>
+            <div className="mt-5 border border-paper-300 rounded-lg p-4 grid grid-cols-4 gap-4 bg-paper-50" data-testid="ingest-result">
+              <StatCol label="Inserted" value={result.inserted} tone="energy" />
+              <StatCol label="Skipped" value={result.skipped} tone="warning" />
+              <StatCol label="Range start" value={result.range_start?.slice(0, 10)} />
+              <StatCol label="Range end" value={result.range_end?.slice(0, 10)} />
             </div>
           )}
         </div>
       </Panel>
 
-      <div className="grid grid-cols-2 gap-4">
-        <Panel data-testid="noaa-panel">
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+        <Panel data-testid="noaa-panel" className="card-hover">
           <PanelHeader label="NOAA Weather" />
-          <div className="p-6">
-            <p className="text-sm text-zinc-400 mb-4">
-              Pull 30 days of outdoor temperature from your configured NOAA station.
-              If NOAA fails, synthetic hourly weather is used as fallback.
-            </p>
-            <button onClick={syncNOAA} className="bg-white text-black hover:bg-zinc-200 rounded-sm px-4 py-2 text-sm font-medium flex items-center gap-2" data-testid="noaa-sync">
-              <CloudArrowDownIcon size={14} /> Sync NOAA
+          <div className="p-6 space-y-4">
+            <p className="text-sm text-slate-600 leading-relaxed">Pull outdoor temperature from your configured NOAA station. Synthetic hourly weather is used as fallback.</p>
+            <button onClick={syncNOAA} className="bg-forest-500 hover:bg-forest-600 text-white rounded-lg px-4 py-2.5 text-sm font-medium flex items-center gap-2 transition-colors" data-testid="noaa-sync">
+              <Cloud size={15} strokeWidth={1.75} /> Sync 30 days
             </button>
           </div>
         </Panel>
 
-        <Panel data-testid="resideo-panel">
-          <PanelHeader label="Resideo Thermostats" />
-          <div className="p-6">
-            <p className="text-sm text-zinc-400 mb-4">
-              Poll thermostat runtime + setpoint. Currently in <span className="text-amber-500 font-mono">MOCK MODE</span> — Resideo dev approval pending.
-            </p>
-            <button onClick={syncResideo} className="bg-white text-black hover:bg-zinc-200 rounded-sm px-4 py-2 text-sm font-medium flex items-center gap-2" data-testid="resideo-sync">
-              <ArrowClockwiseIcon size={14} /> Sync Thermostats
+        <Panel data-testid="resideo-panel" className="card-hover">
+          <PanelHeader label="Resideo Thermostats"
+            action={<span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium uppercase tracking-widest bg-amber-50 text-amber-800 border border-amber-300"><span className="w-1 h-1 rounded-full bg-current" />Mock</span>} />
+          <div className="p-6 space-y-4">
+            <p className="text-sm text-slate-600 leading-relaxed">Poll per-unit runtime + setpoint. Currently mocked — Resideo developer approval pending.</p>
+            <button onClick={syncResideo} className="bg-white border border-paper-300 hover:bg-paper-200 text-forest-700 rounded-lg px-4 py-2.5 text-sm font-medium flex items-center gap-2 transition-colors" data-testid="resideo-sync">
+              <RefreshCw size={15} strokeWidth={1.75} /> Sync 30 days
             </button>
           </div>
         </Panel>
       </div>
+    </div>
+  );
+}
+
+function StatCol({ label, value, tone }) {
+  const cls = tone === "energy" ? "text-energy-600" : tone === "warning" ? "text-amber-600" : "text-forest-800";
+  return (
+    <div>
+      <div className="text-[10px] font-medium uppercase tracking-[0.15em] text-slate-500 mb-1">{label}</div>
+      <div className={`font-mono text-lg ${cls}`}>{value}</div>
     </div>
   );
 }

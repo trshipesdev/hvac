@@ -45,14 +45,15 @@ export default function App() {
   return (
     <BrowserRouter>
       <Toaster
-        theme="dark"
+        theme="light"
         position="top-right"
         toastOptions={{
           style: {
-            background: "#18181b",
-            border: "1px solid #3f3f46",
-            color: "#fafafa",
-            fontFamily: "IBM Plex Sans",
+            background: "#FFFFFF",
+            border: "1px solid #E2E0D8",
+            color: "#1E3A2F",
+            fontFamily: "DM Sans, system-ui, sans-serif",
+            borderRadius: "12px",
           },
         }}
       />

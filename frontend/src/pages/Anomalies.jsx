@@ -1,41 +1,53 @@
 import React, { useEffect, useState } from "react";
 import { api } from "@/lib/apiClient";
 import { Panel, PanelHeader, SeverityPill } from "@/components/Panel";
-import { CaretDownIcon, CaretUpIcon } from "@phosphor-icons/react";
+import { ChevronDown, ChevronUp, RefreshCw, Check, Undo2 } from "lucide-react";
 import { toast } from "sonner";
 
 const TYPES = [
-  { id: "", label: "all" },
-  { id: "extended_runtime", label: "extended runtime" },
-  { id: "overnight_draw", label: "overnight draw" },
-  { id: "efficiency_regression", label: "efficiency regression" },
-  { id: "weather_disproportion", label: "weather disproportion" },
-  { id: "setpoint_gap_widening", label: "setpoint gap" },
+  { id: "", label: "All types" },
+  { id: "extended_runtime", label: "Extended runtime" },
+  { id: "overnight_draw", label: "Overnight draw" },
+  { id: "efficiency_regression", label: "Efficiency regression" },
+  { id: "weather_disproportion", label: "Weather disproportion" },
+  { id: "setpoint_gap_widening", label: "Setpoint gap widening" },
+  { id: "bill_rate_spike", label: "Bill: rate spike" },
+  { id: "bill_past_due", label: "Bill: past due" },
+  { id: "bill_late_fee", label: "Bill: late fee" },
+  { id: "bill_usage_spike", label: "Bill: usage spike" },
 ];
 
-const SEVERITIES = ["", "critical", "warning", "info"];
+const SEVERITIES = [
+  { id: "", label: "All severities" },
+  { id: "critical", label: "Critical" },
+  { id: "warning", label: "Warning" },
+  { id: "info", label: "Info" },
+];
+
+const CATEGORIES = [
+  { id: "", label: "All" },
+  { id: "hvac", label: "HVAC" },
+  { id: "bill", label: "Bill" },
+];
 
 export default function Anomalies() {
   const [items, setItems] = useState([]);
   const [units, setUnits] = useState([]);
   const [expanded, setExpanded] = useState({});
-  const [filters, setFilters] = useState({ type: "", severity: "", unit_id: "" });
+  const [filters, setFilters] = useState({ type: "", severity: "", unit_id: "", category: "" });
+  const [showAcked, setShowAcked] = useState(false);
   const [loading, setLoading] = useState(true);
 
   const load = async () => {
     setLoading(true);
     try {
-      const [a, u] = await Promise.all([
-        api.listAnomalies({ ...Object.fromEntries(Object.entries(filters).filter(([_, v]) => v)) }),
-        api.listUnits(),
-      ]);
-      setItems(a.data);
-      setUnits(u.data);
+      const params = { ...Object.fromEntries(Object.entries(filters).filter(([_, v]) => v)), include_acknowledged: showAcked };
+      const [a, u] = await Promise.all([api.listAnomalies(params), api.listUnits()]);
+      setItems(a.data); setUnits(u.data);
     } catch { toast.error("Load failed"); }
     finally { setLoading(false); }
   };
-
-  useEffect(() => { load(); /* eslint-disable-next-line */ }, [filters]);
+  useEffect(() => { load(); /* eslint-disable-next-line */ }, [filters, showAcked]);
 
   const rerun = async () => {
     toast.info("Running detectors…");
@@ -43,78 +55,92 @@ export default function Anomalies() {
     catch { toast.error("Detection failed"); }
   };
 
+  const ack = async (id) => { try { await api.ackAnomaly(id); toast.success("Acknowledged"); load(); } catch { toast.error("Ack failed"); } };
+  const unack = async (id) => { try { await api.unackAnomaly(id); load(); } catch {} };
+
   return (
-    <div className="space-y-6" data-testid="anomalies-page">
-      <div className="flex items-center justify-between">
+    <div className="space-y-8 animate-fade-in" data-testid="anomalies-page">
+      <div className="flex items-start justify-between flex-wrap gap-4">
         <div>
-          <div className="font-mono text-[10px] uppercase tracking-[0.2em] text-zinc-500 mb-1">&gt; anomaly log</div>
-          <h1 className="text-3xl font-semibold tracking-tight">Anomalies</h1>
+          <div className="text-[10px] font-medium uppercase tracking-[0.15em] text-slate-500 mb-2">anomaly log</div>
+          <h1 className="text-4xl font-serif tracking-tight text-forest-900">Anomalies</h1>
+          <p className="text-sm text-slate-600 mt-1.5">Five HVAC detectors + four bill detectors continuously monitor your system. Acknowledge a flag to silence future duplicates of the same pattern.</p>
         </div>
         <button onClick={rerun} data-testid="rerun-detectors"
-          className="bg-white text-black hover:bg-zinc-200 rounded-sm px-4 py-2 text-sm font-medium">
-          Re-run detectors
+          className="bg-forest-500 hover:bg-forest-600 text-white rounded-lg px-4 py-2.5 text-sm font-medium flex items-center gap-2 transition-colors">
+          <RefreshCw size={14} strokeWidth={1.75} /> Re-run detectors
         </button>
       </div>
 
       <Panel>
-        <div className="p-4 flex flex-wrap gap-3 border-b border-zinc-800">
-          <Select label="type" value={filters.type} onChange={(v) => setFilters({...filters, type: v})} data-testid="filter-type">
+        <div className="p-5 flex flex-wrap gap-4 border-b border-paper-300 items-end">
+          <Select label="Category" value={filters.category} onChange={(v) => setFilters({...filters, category: v})} data-testid="filter-category">
+            {CATEGORIES.map((c) => <option key={c.id} value={c.id}>{c.label}</option>)}
+          </Select>
+          <Select label="Type" value={filters.type} onChange={(v) => setFilters({...filters, type: v})} data-testid="filter-type">
             {TYPES.map((t) => <option key={t.id} value={t.id}>{t.label}</option>)}
           </Select>
-          <Select label="severity" value={filters.severity} onChange={(v) => setFilters({...filters, severity: v})} data-testid="filter-severity">
-            {SEVERITIES.map((s) => <option key={s} value={s}>{s || "all"}</option>)}
+          <Select label="Severity" value={filters.severity} onChange={(v) => setFilters({...filters, severity: v})} data-testid="filter-severity">
+            {SEVERITIES.map((s) => <option key={s.id} value={s.id}>{s.label}</option>)}
           </Select>
-          <Select label="unit" value={filters.unit_id} onChange={(v) => setFilters({...filters, unit_id: v})} data-testid="filter-unit">
-            <option value="">all</option>
+          <Select label="Unit" value={filters.unit_id} onChange={(v) => setFilters({...filters, unit_id: v})} data-testid="filter-unit">
+            <option value="">All units</option>
             {units.map((u) => <option key={u.id} value={u.id}>{u.name}</option>)}
           </Select>
-          <div className="ml-auto font-mono text-[10px] uppercase tracking-[0.2em] text-zinc-500 self-end">
-            {items.length} result{items.length !== 1 ? "s" : ""}
-          </div>
+          <label className="flex items-center gap-2 text-sm text-forest-800 cursor-pointer h-9">
+            <input type="checkbox" checked={showAcked} onChange={(e) => setShowAcked(e.target.checked)} className="accent-forest-500 w-4 h-4" data-testid="show-acked" />
+            Show acknowledged
+          </label>
+          <div className="ml-auto text-[10px] font-medium uppercase tracking-[0.15em] text-slate-500">{items.length} result{items.length !== 1 ? "s" : ""}</div>
         </div>
 
-        <div className="divide-y divide-zinc-800/60">
-          {loading && <div className="p-6 text-sm text-zinc-500 font-mono">loading…</div>}
-          {!loading && items.length === 0 && (
-            <div className="p-8 text-center text-sm text-zinc-500 font-mono">
-              no anomalies detected in this window
-            </div>
-          )}
+        <div className="divide-y divide-paper-200">
+          {loading && <div className="p-8 text-sm text-slate-500 text-center">Loading…</div>}
+          {!loading && items.length === 0 && <div className="p-10 text-center text-sm text-slate-500">No anomalies match the current filters.</div>}
           {items.map((a) => {
             const unit = units.find((u) => u.id === a.unit_id);
             const isOpen = expanded[a.id];
             return (
-              <div key={a.id} data-testid={`anomaly-row-${a.id}`}>
-                <div
-                  className="px-4 py-3 flex items-start gap-3 hover:bg-zinc-900/40 cursor-pointer"
-                  onClick={() => setExpanded({...expanded, [a.id]: !isOpen})}
-                >
+              <div key={a.id} data-testid={`anomaly-row-${a.id}`} className={a.acknowledged ? "opacity-60" : ""}>
+                <div className="px-6 py-4 flex items-start gap-4 hover:bg-paper-50 cursor-pointer transition-colors" onClick={() => setExpanded({...expanded, [a.id]: !isOpen})}>
                   <SeverityPill severity={a.severity} />
                   <div className="flex-1 min-w-0">
-                    <div className="text-sm text-zinc-100">{a.title}</div>
-                    <div className="text-xs text-zinc-500 font-mono mt-0.5">
-                      {unit?.name || "—"} · {a.type.replace(/_/g, " ")} · {new Date(a.ts_start).toLocaleString()}
+                    <div className="text-sm text-forest-800 font-medium flex items-center gap-2">
+                      {a.title}
+                      {a.acknowledged && <span className="text-[10px] uppercase tracking-widest font-normal text-slate-500">acked</span>}
+                    </div>
+                    <div className="text-xs text-slate-500 font-mono mt-1">
+                      {a.category === "bill" ? "Bill" : (unit?.name || "—")} · {a.type.replace(/_/g, " ")} · {new Date(a.ts_start).toLocaleString()}
                     </div>
                   </div>
-                  {isOpen ? <CaretUpIcon size={16} className="text-zinc-500" /> : <CaretDownIcon size={16} className="text-zinc-500" />}
+                  <div className="flex items-center gap-2" onClick={(e) => e.stopPropagation()}>
+                    {a.acknowledged ? (
+                      <button onClick={() => unack(a.id)} title="Un-acknowledge" data-testid={`unack-${a.id}`}
+                        className="text-slate-400 hover:text-forest-600 p-1.5 rounded-lg hover:bg-paper-200 transition-colors"><Undo2 size={14} strokeWidth={1.75} /></button>
+                    ) : (
+                      <button onClick={() => ack(a.id)} title="Acknowledge" data-testid={`ack-${a.id}`}
+                        className="text-slate-400 hover:text-energy-600 p-1.5 rounded-lg hover:bg-paper-200 transition-colors"><Check size={14} strokeWidth={1.75} /></button>
+                    )}
+                    {isOpen ? <ChevronUp size={16} strokeWidth={1.75} className="text-slate-400" /> : <ChevronDown size={16} strokeWidth={1.75} className="text-slate-400" />}
+                  </div>
                 </div>
                 {isOpen && (
-                  <div className="px-4 pb-4 pl-16 space-y-3 bg-zinc-900/20">
-                    <p className="text-sm text-zinc-300 leading-relaxed">{a.description}</p>
-                    <div className="grid grid-cols-3 gap-3 border border-zinc-800 rounded-sm p-3 font-mono text-xs">
-                      {Object.entries(a.context || {}).map(([k, v]) => (
+                  <div className="px-6 pb-5 pl-24 space-y-3 bg-paper-50 animate-fade-in">
+                    <p className="text-sm text-forest-800 leading-relaxed">{a.description}</p>
+                    <div className="grid grid-cols-3 gap-3 border border-paper-300 rounded-lg p-3 bg-white">
+                      {Object.entries(a.context || {}).filter(([k]) => !["fees", "raw_notes"].includes(k)).map(([k, v]) => (
                         <div key={k}>
-                          <div className="text-zinc-500 uppercase text-[10px] tracking-widest">{k.replace(/_/g, " ")}</div>
-                          <div className="text-zinc-100">{typeof v === "number" ? v.toString() : String(v)}</div>
+                          <div className="text-[10px] font-medium uppercase tracking-[0.15em] text-slate-500 mb-0.5">{k.replace(/_/g, " ")}</div>
+                          <div className="font-mono text-xs text-forest-800">{typeof v === "number" ? v.toString() : String(v).slice(0, 60)}</div>
                         </div>
                       ))}
                       <div>
-                        <div className="text-zinc-500 uppercase text-[10px] tracking-widest">start</div>
-                        <div className="text-zinc-100">{new Date(a.ts_start).toLocaleString()}</div>
+                        <div className="text-[10px] font-medium uppercase tracking-[0.15em] text-slate-500 mb-0.5">Start</div>
+                        <div className="font-mono text-xs text-forest-800">{new Date(a.ts_start).toLocaleString()}</div>
                       </div>
                       <div>
-                        <div className="text-zinc-500 uppercase text-[10px] tracking-widest">end</div>
-                        <div className="text-zinc-100">{new Date(a.ts_end).toLocaleString()}</div>
+                        <div className="text-[10px] font-medium uppercase tracking-[0.15em] text-slate-500 mb-0.5">End</div>
+                        <div className="font-mono text-xs text-forest-800">{new Date(a.ts_end).toLocaleString()}</div>
                       </div>
                     </div>
                   </div>
@@ -130,16 +156,11 @@ export default function Anomalies() {
 
 function Select({ label, value, onChange, children, ...props }) {
   return (
-    <label className="flex flex-col gap-1">
-      <span className="font-mono text-[10px] uppercase tracking-[0.2em] text-zinc-500">{label}</span>
-      <select
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        className="bg-zinc-950 border border-zinc-800 rounded-sm px-3 py-1.5 text-sm text-zinc-100 focus:ring-1 focus:ring-zinc-500 font-mono min-w-[160px]"
-        {...props}
-      >
-        {children}
-      </select>
+    <label className="flex flex-col gap-1.5">
+      <span className="text-[10px] font-medium uppercase tracking-[0.15em] text-slate-500">{label}</span>
+      <select value={value} onChange={(e) => onChange(e.target.value)}
+        className="bg-white border border-paper-300 rounded-lg px-3 py-2 text-sm text-forest-800 focus:outline-none focus:ring-2 focus:ring-forest-500/30 focus:border-forest-500 min-w-[170px] transition-all"
+        {...props}>{children}</select>
     </label>
   );
 }
