@@ -784,9 +784,6 @@ async def bulk_parse(files: List[UploadFile] = File(...)):
     return {"results": results, "count": len(results)}
 
 
-# ---------- Deprecated inline bill create shim removed above ----------
-
-
 # ---------- Export ----------
 
 @api.get("/export/csv", dependencies=[Depends(require_passphrase)])

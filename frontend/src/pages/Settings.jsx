@@ -98,7 +98,7 @@ export default function Settings() {
               <div className="text-[10px] font-medium uppercase tracking-[0.15em] text-slate-500">Claude Haiku 4.5 · Bill Parser</div>
               <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium uppercase tracking-widest bg-energy-50 text-energy-700 border border-energy-500/40"><span className="w-1 h-1 rounded-full bg-current" />Live</span>
             </div>
-            <div className="text-xs text-slate-600 leading-relaxed">Utility bill PDFs are sent directly to Anthropic (not via Emergent). Model: <span className="font-mono text-forest-700">claude-haiku-4-5-20251001</span>.</div>
+            <div className="text-xs text-slate-600 leading-relaxed">Utility bill PDFs are sent directly to Anthropic. Model: <span className="font-mono text-forest-700">claude-haiku-4-5-20251001</span>.</div>
           </div>
         </div>
       </Panel>
