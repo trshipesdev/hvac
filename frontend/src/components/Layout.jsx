@@ -1,12 +1,13 @@
 import React from "react";
 import { NavLink, useLocation } from "react-router-dom";
-import { LayoutDashboard, Upload, AlertTriangle, Receipt, Settings2, Leaf } from "lucide-react";
+import { LayoutDashboard, Upload, AlertTriangle, Receipt, Settings2, Leaf, Thermometer } from "lucide-react";
 
 const NAV = [
   { to: "/dashboard", label: "Dashboard", key: "dashboard", Icon: LayoutDashboard },
   { to: "/ingest", label: "Ingest", key: "ingest", Icon: Upload },
   { to: "/anomalies", label: "Anomalies", key: "anomalies", Icon: AlertTriangle },
   { to: "/bills", label: "Bills", key: "bills", Icon: Receipt },
+  { to: "/honeywell", label: "Zone Reports", key: "honeywell", Icon: Thermometer },
   { to: "/settings", label: "Settings", key: "settings", Icon: Settings2 },
 ];
 

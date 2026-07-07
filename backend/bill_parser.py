@@ -45,6 +45,8 @@ Schema:
   "days_in_period": integer|null,
   "total_kwh": float|null,
   "total_cost": float|null,
+  "total_amount_due": float|null,
+  "past_due_balance": float|null,
   "effective_rate_per_kwh": float|null,
   "previous_meter_reading": float|null,
   "current_meter_reading": float|null,
@@ -63,6 +65,15 @@ Schema:
   "temperature_prior_avg_f": float|null,
   "notes": string|null
 }
+
+total_cost is THIS period's electricity usage cost only — sum the non-fee
+line_items (generation/distribution/transmission/fuel/tax categories),
+excluding any "fee" category items and excluding any carried-over past-due
+balance. total_amount_due is the full amount the bill asks you to pay,
+which may include total_cost PLUS late fees PLUS a past-due balance carried
+from a prior unpaid bill — do not conflate the two. past_due_balance is
+whatever dollar amount the bill explicitly shows as carried over/still owed
+from a previous billing period; null if the bill shows no such balance.
 
 Compute effective_rate_per_kwh as total_cost / total_kwh if both are present and
 the bill doesn't explicitly show it.

@@ -4,8 +4,9 @@ import { X, Thermometer, Zap, AlertTriangle } from "lucide-react";
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from "recharts";
 import { SeverityPill } from "@/components/Panel";
 import { createPortal } from "react-dom";
+import { fmtTimeOnly, fmtBucketLabel } from "@/lib/time";
 
-export default function DrilldownModal({ ts, bucket, onClose }) {
+export default function DrilldownModal({ ts, bucket, onClose, property }) {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
 
@@ -18,32 +19,34 @@ export default function DrilldownModal({ ts, bucket, onClose }) {
     })();
   }, [ts, bucket]);
 
-  // Build chart data merging thermostat + weather + interval
+  // Build chart data merging thermostat + weather + interval. Keyed by the
+  // raw UTC ISO instant (always correctly sortable) — the localized 12h/24h
+  // label is only computed after sorting, so AM/PM formatting never breaks
+  // chronological order the way sorting on a formatted string would.
   const chartData = React.useMemo(() => {
     if (!data?.intervals?.length && !data?.readings_by_unit) return [];
     const byTs = new Map();
     (data.intervals || []).forEach((iv) => {
-      const t = iv.ts_start.slice(11, 16);
-      byTs.set(t, { ts: t, kwh: iv.kwh });
+      byTs.set(iv.ts_start, { key: iv.ts_start, kwh: iv.kwh });
     });
     Object.entries(data.readings_by_unit || {}).forEach(([uid, readings]) => {
       readings.forEach((r) => {
-        const t = r.ts.slice(11, 16);
-        const row = byTs.get(t) || { ts: t };
+        const row = byTs.get(r.ts) || { key: r.ts };
         row[`setpoint_${uid}`] = r.setpoint_f;
         row[`actual_${uid}`] = r.actual_temp_f;
         row[`on_${uid}`] = r.compressor_on ? 1 : 0;
-        byTs.set(t, row);
+        byTs.set(r.ts, row);
       });
     });
     (data.weather || []).forEach((w) => {
-      const t = w.ts.slice(11, 16);
-      const row = byTs.get(t) || { ts: t };
+      const row = byTs.get(w.ts) || { key: w.ts };
       row.outdoor = w.outdoor_temp_f;
-      byTs.set(t, row);
+      byTs.set(w.ts, row);
     });
-    return Array.from(byTs.values()).sort((a, b) => a.ts.localeCompare(b.ts));
-  }, [data]);
+    return Array.from(byTs.values())
+      .sort((a, b) => a.key.localeCompare(b.key))
+      .map((row) => ({ ...row, ts: fmtTimeOnly(row.key, property) }));
+  }, [data, property]);
 
   return createPortal(
     <div className="fixed inset-0 z-50 bg-black/40 backdrop-blur-sm flex items-center justify-center p-6 animate-fade-in" onClick={onClose} data-testid="drilldown-modal">
@@ -51,7 +54,7 @@ export default function DrilldownModal({ ts, bucket, onClose }) {
         <div className="px-6 py-4 border-b border-paper-300 flex items-center justify-between">
           <div>
             <div className="text-[10px] font-medium uppercase tracking-[0.15em] text-forest-500">Drill-down · {bucket}</div>
-            <div className="text-lg font-serif text-forest-900">{ts}</div>
+            <div className="text-lg font-serif text-forest-900">{bucket === "day" ? ts : `${ts.slice(0, 10)} ${fmtBucketLabel(ts, "hour", property)}`}</div>
           </div>
           <button onClick={onClose} className="text-slate-400 hover:text-forest-800 p-1 rounded-lg hover:bg-paper-200" data-testid="drilldown-close">
             <X size={20} strokeWidth={1.75} />
@@ -68,6 +71,22 @@ export default function DrilldownModal({ ts, bucket, onClose }) {
                 <Stat label="Thermostat readings" value={Object.values(data.readings_by_unit || {}).reduce((s, r) => s + r.length, 0)} icon={<Thermometer size={13} strokeWidth={1.75} className="text-forest-600" />} />
                 <Stat label="Anomalies" value={data.anomalies?.length ?? 0} icon={<AlertTriangle size={13} strokeWidth={1.75} className="text-amber-600" />} />
               </div>
+
+              {(data.units || []).some((u) => (data.readings_by_unit?.[u.id] || []).length > 0) && (
+                <div className="flex flex-wrap gap-3">
+                  {(data.units || []).map((u) => {
+                    const readings = data.readings_by_unit?.[u.id] || [];
+                    if (!readings.length) return null;
+                    const sources = new Set(readings.map((r) => r.source || "mock"));
+                    const label = sources.has("mock") ? "mock" : sources.has("estimated") ? "estimated" : "live";
+                    return (
+                      <span key={u.id} className={`text-[10px] uppercase tracking-widest px-2 py-0.5 rounded-full border ${
+                        label === "live" ? "text-energy-700 bg-energy-50 border-energy-500/40" : "text-amber-700 bg-amber-50 border-amber-300"
+                      }`} data-testid={`drilldown-source-${u.id}`}>{u.name}: {label}</span>
+                    );
+                  })}
+                </div>
+              )}
 
               {chartData.length > 0 && (
                 <div className="border border-paper-300 rounded-lg p-4">
@@ -126,7 +145,7 @@ export default function DrilldownModal({ ts, bucket, onClose }) {
                     <tbody>
                       {(data.intervals || []).map((iv) => (
                         <tr key={iv.id} className="border-b border-paper-200 last:border-0 font-mono">
-                          <td className="py-1.5 px-3 text-forest-800">{iv.ts_start.slice(11, 16)}</td>
+                          <td className="py-1.5 px-3 text-forest-800">{fmtTimeOnly(iv.ts_start, property)}</td>
                           <td className="text-right py-1.5 px-3 text-forest-800">{iv.kwh?.toFixed(3)}</td>
                           <td className="text-right py-1.5 px-3 text-slate-500">{iv.base_load_kwh?.toFixed(3) ?? "—"}</td>
                           {(data.units || []).map((u) => (

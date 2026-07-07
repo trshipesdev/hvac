@@ -32,6 +32,50 @@ def intervals_to_csv(intervals: List[Dict[str, Any]], units: List[Dict[str, Any]
     return output.getvalue()
 
 
+def bills_to_csv(bills: List[Dict[str, Any]]) -> str:
+    output = io.StringIO()
+    writer = csv.writer(output)
+    writer.writerow([
+        "start", "end", "total_kwh", "total_cost", "rate_usd_per_kwh",
+        "computed_kwh", "computed_cost", "delta_kwh", "delta_cost", "notes",
+    ])
+    for b in sorted(bills, key=lambda x: x["start"]):
+        start = b["start"].isoformat() if isinstance(b["start"], datetime) else b["start"]
+        end = b["end"].isoformat() if isinstance(b["end"], datetime) else b["end"]
+        total_kwh, total_cost = b.get("total_kwh"), b.get("total_cost")
+        computed_kwh, computed_cost = b.get("computed_kwh"), b.get("computed_cost")
+        delta_kwh = (total_kwh - computed_kwh) if (total_kwh is not None and computed_kwh is not None) else None
+        delta_cost = (total_cost - computed_cost) if (total_cost is not None and computed_cost is not None) else None
+        writer.writerow([
+            start, end, total_kwh, total_cost, b.get("rate_usd_per_kwh"),
+            computed_kwh, computed_cost, delta_kwh, delta_cost,
+            (b.get("notes") or "").replace("\n", " | "),
+        ])
+    return output.getvalue()
+
+
+def zone_months_to_csv(zone_rows: List[Dict[str, Any]], units: List[Dict[str, Any]]) -> str:
+    unit_names = {u["id"]: u["name"] for u in units}
+    output = io.StringIO()
+    writer = csv.writer(output)
+    writer.writerow([
+        "year", "month", "zone_name", "unit_name", "total_runtime_hours",
+        "heating_hours", "cooling_hours", "equipment_off_hours",
+        "outdoor_avg_hi_f", "outdoor_avg_lo_f",
+        "avg_indoor_temp_heating_f", "avg_indoor_temp_cooling_f",
+        "is_estimated", "source_reports",
+    ])
+    for z in sorted(zone_rows, key=lambda x: (x["year"], x["month"], x["zone_name"])):
+        writer.writerow([
+            z["year"], z["month"], z["zone_name"], unit_names.get(z.get("unit_id"), ""),
+            z.get("total_runtime_hours"), z.get("heating_hours"), z.get("cooling_hours"),
+            z.get("equipment_off_hours"), z.get("outdoor_avg_hi_f"), z.get("outdoor_avg_lo_f"),
+            z.get("avg_indoor_temp_heating_f"), z.get("avg_indoor_temp_cooling_f"),
+            z.get("is_estimated"), "; ".join(z.get("source_reports") or []),
+        ])
+    return output.getvalue()
+
+
 def _render_timeline_png(intervals: List[Dict[str, Any]], units: List[Dict[str, Any]]) -> bytes:
     """Render a daily-bucketed stacked area chart as PNG bytes."""
     daily: Dict[str, Dict[str, float]] = {}

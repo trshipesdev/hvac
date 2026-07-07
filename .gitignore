@@ -52,6 +52,12 @@ venv/
 # Build caches
 .cache/
 
+# Local MongoDB data dir created by run.sh — this is real personal data
+# (bills, Green Button intervals, anomaly history), never committed.
+.mongo-data/
+backend/uvicorn.log
+frontend/yarn-start.log
+
 # Environment / credentials
 .env
 .env.*
@@ -60,3 +66,10 @@ venv/
 *credentials.json*
 *.key
 .credentials
+
+# Real personal utility bills / Green Button exports used for local testing —
+# these belong outside the repo (see ~/hvac-sample-data/), never committed.
+# Anchored to the repo root only so it doesn't hide legitimate PDFs elsewhere.
+/*.pdf
+/*.xml
+/*.XML

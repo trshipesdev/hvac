@@ -1,8 +1,9 @@
 import React, { useEffect, useState } from "react";
 import { api } from "@/lib/apiClient";
-import { Panel, PanelHeader, SeverityPill } from "@/components/Panel";
+import { Panel, PanelHeader, SeverityPill, Select } from "@/components/Panel";
 import { ChevronDown, ChevronUp, RefreshCw, Check, Undo2 } from "lucide-react";
 import { toast } from "sonner";
+import { fmtDateTime } from "@/lib/time";
 
 const TYPES = [
   { id: "", label: "All types" },
@@ -11,10 +12,14 @@ const TYPES = [
   { id: "efficiency_regression", label: "Efficiency regression" },
   { id: "weather_disproportion", label: "Weather disproportion" },
   { id: "setpoint_gap_widening", label: "Setpoint gap widening" },
+  { id: "zone_mode_weather_mismatch", label: "Zone heat/cool vs. monthly weather" },
+  { id: "mode_weather_mismatch", label: "Heat/cool ran on wrong kind of day" },
   { id: "bill_rate_spike", label: "Bill: rate spike" },
   { id: "bill_past_due", label: "Bill: past due" },
   { id: "bill_late_fee", label: "Bill: late fee" },
   { id: "bill_usage_spike", label: "Bill: usage spike" },
+  { id: "bill_meter_mismatch", label: "Bill: meter mismatch" },
+  { id: "bill_period_gap", label: "Bill: period gap" },
 ];
 
 const SEVERITIES = [
@@ -33,6 +38,7 @@ const CATEGORIES = [
 export default function Anomalies() {
   const [items, setItems] = useState([]);
   const [units, setUnits] = useState([]);
+  const [property, setProperty] = useState(null);
   const [expanded, setExpanded] = useState({});
   const [filters, setFilters] = useState({ type: "", severity: "", unit_id: "", category: "" });
   const [showAcked, setShowAcked] = useState(false);
@@ -42,8 +48,8 @@ export default function Anomalies() {
     setLoading(true);
     try {
       const params = { ...Object.fromEntries(Object.entries(filters).filter(([_, v]) => v)), include_acknowledged: showAcked };
-      const [a, u] = await Promise.all([api.listAnomalies(params), api.listUnits()]);
-      setItems(a.data); setUnits(u.data);
+      const [a, u, p] = await Promise.all([api.listAnomalies(params), api.listUnits(), api.getProperty()]);
+      setItems(a.data); setUnits(u.data); setProperty(p.data);
     } catch { toast.error("Load failed"); }
     finally { setLoading(false); }
   };
@@ -56,7 +62,7 @@ export default function Anomalies() {
   };
 
   const ack = async (id) => { try { await api.ackAnomaly(id); toast.success("Acknowledged"); load(); } catch { toast.error("Ack failed"); } };
-  const unack = async (id) => { try { await api.unackAnomaly(id); load(); } catch {} };
+  const unack = async (id) => { try { await api.unackAnomaly(id); load(); } catch { toast.error("Unacknowledge failed"); } };
 
   return (
     <div className="space-y-8 animate-fade-in" data-testid="anomalies-page">
@@ -110,7 +116,7 @@ export default function Anomalies() {
                       {a.acknowledged && <span className="text-[10px] uppercase tracking-widest font-normal text-slate-500">acked</span>}
                     </div>
                     <div className="text-xs text-slate-500 font-mono mt-1">
-                      {a.category === "bill" ? "Bill" : (unit?.name || "—")} · {a.type.replace(/_/g, " ")} · {new Date(a.ts_start).toLocaleString()}
+                      {a.category === "bill" ? "Bill" : (unit?.name || "—")} · {a.type.replace(/_/g, " ")} · {fmtDateTime(a.ts_start, property)}
                     </div>
                   </div>
                   <div className="flex items-center gap-2" onClick={(e) => e.stopPropagation()}>
@@ -136,11 +142,11 @@ export default function Anomalies() {
                       ))}
                       <div>
                         <div className="text-[10px] font-medium uppercase tracking-[0.15em] text-slate-500 mb-0.5">Start</div>
-                        <div className="font-mono text-xs text-forest-800">{new Date(a.ts_start).toLocaleString()}</div>
+                        <div className="font-mono text-xs text-forest-800">{fmtDateTime(a.ts_start, property)}</div>
                       </div>
                       <div>
                         <div className="text-[10px] font-medium uppercase tracking-[0.15em] text-slate-500 mb-0.5">End</div>
-                        <div className="font-mono text-xs text-forest-800">{new Date(a.ts_end).toLocaleString()}</div>
+                        <div className="font-mono text-xs text-forest-800">{fmtDateTime(a.ts_end, property)}</div>
                       </div>
                     </div>
                   </div>
@@ -151,16 +157,5 @@ export default function Anomalies() {
         </div>
       </Panel>
     </div>
-  );
-}
-
-function Select({ label, value, onChange, children, ...props }) {
-  return (
-    <label className="flex flex-col gap-1.5">
-      <span className="text-[10px] font-medium uppercase tracking-[0.15em] text-slate-500">{label}</span>
-      <select value={value} onChange={(e) => onChange(e.target.value)}
-        className="bg-white border border-paper-300 rounded-lg px-3 py-2 text-sm text-forest-800 focus:outline-none focus:ring-2 focus:ring-forest-500/30 focus:border-forest-500 min-w-[170px] transition-all"
-        {...props}>{children}</select>
-    </label>
   );
 }

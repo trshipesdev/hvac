@@ -7,6 +7,7 @@ import Dashboard from "@/pages/Dashboard";
 import Ingest from "@/pages/Ingest";
 import Anomalies from "@/pages/Anomalies";
 import Bills from "@/pages/Bills";
+import Honeywell from "@/pages/Honeywell";
 import Settings from "@/pages/Settings";
 import { api } from "@/lib/apiClient";
 import "@/App.css";
@@ -63,6 +64,7 @@ export default function App() {
         <Route path="/ingest" element={<BootGate><AppShell><Ingest /></AppShell></BootGate>} />
         <Route path="/anomalies" element={<BootGate><AppShell><Anomalies /></AppShell></BootGate>} />
         <Route path="/bills" element={<BootGate><AppShell><Bills /></AppShell></BootGate>} />
+        <Route path="/honeywell" element={<BootGate><AppShell><Honeywell /></AppShell></BootGate>} />
         <Route path="/settings" element={<BootGate><AppShell><Settings /></AppShell></BootGate>} />
         <Route path="/" element={<Navigate to="/dashboard" replace />} />
         <Route path="*" element={<Navigate to="/dashboard" replace />} />
