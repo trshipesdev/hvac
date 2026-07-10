@@ -71,6 +71,5 @@ environment variables, and manual setup if you'd rather not use the scripts.
 
 - [docs/ONBOARDING.md](docs/ONBOARDING.md) — first-run walkthrough
 - [docs/INSTALLATION.md](docs/INSTALLATION.md) — detailed setup
-- [docs/GIT_GUIDE.md](docs/GIT_GUIDE.md) — cloning/forking this repo
 - [docs/ORACLE_DEPLOYMENT.md](docs/ORACLE_DEPLOYMENT.md) — running it on an
   always-on box instead of your laptop
