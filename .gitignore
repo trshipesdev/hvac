@@ -4,6 +4,9 @@
 .idea/
 .vscode/
 
+# Local project notes — stale draft, not meant for the public repo
+memory/
+
 # Dependencies
 node_modules/
 /node_modules
@@ -66,6 +69,8 @@ frontend/yarn-start.log
 *credentials.json*
 *.key
 .credentials
+# ...but template files are meant to be committed, not secrets themselves.
+!**/.env.example
 
 # Real personal utility bills / Green Button exports used for local testing —
 # these belong outside the repo (see ~/hvac-sample-data/), never committed.
