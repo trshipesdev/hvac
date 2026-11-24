@@ -6,39 +6,36 @@ import pytest
 import requests
 
 BASE_URL = os.environ.get("REACT_APP_BACKEND_URL", "http://localhost:8000").rstrip("/")
-PASS = "changeme"
-H = {"X-Api-Passphrase": PASS}
 
 
 @pytest.fixture(scope="session")
 def s():
-    sess = requests.Session()
-    sess.headers.update(H)
-    return sess
+    return requests.Session()
 
 
-# ---- Auth / health ----
+@pytest.fixture(scope="session", autouse=True)
+def two_units(s):
+    """Most endpoints need at least two HVAC units to compare. A fresh
+    database has none, so create them here rather than depending on
+    whatever data happens to be loaded."""
+    existing = s.get(f"{BASE_URL}/api/units", timeout=30).json()
+    for name in ["TEST Upstairs", "TEST Downstairs"][len(existing):]:
+        r = s.post(f"{BASE_URL}/api/units", json={"name": name, "tonnage": 2.5})
+        assert r.status_code == 200, r.text
+
+
+# ---- Health / auth ----
 def test_health():
     r = requests.get(f"{BASE_URL}/api/health", timeout=30)
     assert r.status_code == 200
     assert r.json()["status"] == "ok"
 
 
-def test_auth_check_bad():
-    r = requests.get(f"{BASE_URL}/api/auth/check", headers={"X-Api-Passphrase": "wrong"})
+def test_auth_check_reports_no_login():
+    # Single-user local app: there is no passphrase, and the API says so.
+    r = requests.get(f"{BASE_URL}/api/auth/check")
     assert r.status_code == 200
-    assert r.json()["authenticated"] is False
-
-
-def test_auth_check_ok():
-    r = requests.get(f"{BASE_URL}/api/auth/check", headers=H)
-    assert r.status_code == 200
-    assert r.json()["authenticated"] is True
-
-
-def test_unauthorized_protected():
-    r = requests.get(f"{BASE_URL}/api/property")
-    assert r.status_code == 401
+    assert r.json() == {"authenticated": True, "auth_required": False}
 
 
 # ---- Property ----
